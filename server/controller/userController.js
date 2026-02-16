@@ -1,45 +1,9 @@
-const User = require('../config/user')
 require('../config/dbconn')
 const User3 = require('../config/userAuth')
 const crypto = require('crypto') 
 const RazorPay = require('razorpay')
+const Contact = require('../config/contactSch')
 
-// save schema data in users collection..of User schema..
-exports.user = async(req,res)=>{
- try{   
-    const setuser = new User(req.body)  // hm body se req kr rhe jaise hi schema se data ayega use save kr lege..
-    await setuser.save()
-    res.status(200).json(setuser)}
-    catch(err){
-        res.status(400).json({message:err.message})
-    }
-}
-
-// controller for read or get user...of User schema...
-exports.readUser = async(req, res)=>{
-    try{
-        const user = await User.find()
-        res.status(200).json(user)
-    }
-    catch(err){
-        res.status(400).json({message : err.message})
-    }
-}
-
-// controller for getData or read data by id..
-exports.readUserById = async(req, res)=>{
-    try{
-        const user = await User.findById(req.params.id)
-
-        if(!user){
-            res.status(400).json({message : err.message})
-        }
-        res.status(200).json(user)
-    }
-    catch(err){
-        res.status(400).json({message : err.message})
-    }
-}
 
 
 //"userAuth" ke bcrypt password ko save krne ka function bna rhe hai..
@@ -53,7 +17,8 @@ exports.postAuthUser = async(req, res)=>{
     }
 }
 
-// ye controller check krega ki hmne jo field pass kiya hai uss field ki value same hai ki nhi agr nhi hogi to error return krega..jaise hmne email se register kiya aur jb login krege aur wo same gmail database me nhi hoga to erroe dega aur agr hoga to login ho jayega..
+
+// login...ye controller check krega ki hmne jo field pass kiya hai uss field ki value same hai ki nhi agr nhi hogi to error return krega..jaise hmne email se register kiya aur jb login krege aur wo same gmail database me nhi hoga to erroe dega aur agr hoga to login ho jayega..
 exports.LoginUser = async (req,res)=>{
     try{
         const user = await User3.findByCredentials(
@@ -79,79 +44,79 @@ exports.postUser = async (req, res)=>{
     }
 }
 
-// controller for update data of user...
-exports.userUpdate = async (req, res)=>{
-    const updates = Object.keys(req.body)  // hmne object.keys(req.body) ki help se hmne schema ki sari keys(email, password, name schema me jitne v data hote hai key aur value ke pair me hote hai to hm unke keys ko hi get kr ke unki value ko update krege isliye keys ko get kr rhe hai) ko get kr liya kyu ki hm keys pr hi operation perform krne wale hai..
-    const allowedUpdate = ['email','password']  // hmne allow kiya ki email aur password pr hi update lgayege hm aur keys ko v add kr skte hai like name, phone etc...
-    const isValidDateOperation = updates.every((update)=>{ // yha every() and includes() dono inbuilt method hai..
-        allowedUpdate.includes(update)  // sare keys me se email and password ko include krna hai..
-    })
-    if(isValidDateOperation){
-        return res.status(400).send({error : "invalid update"})
-    }
-    try{
-const user = await User3.findByIdAndUpdate(req.params.id, req.body, {new : true, runValidator : true})// yha user3 userAuth schema ka refrence hai..yha "req.params.id" isiliye use kiye hai kyu ki hm specific User3 schema ke user ka id dal ke update perform krege..
-if(!user){
-    return res.status(404).send()
-}
-res.send(user)
-    }catch(err){
-res.status(400).send(err)
-    }
-}
+// controller for data stored in schema...
+exports.saveMessage = async (req, res) => {
+  try {
+    const { name, email, message, submittedAt } = req.body; // Pick up submittedAt
 
-// controller to remove or delete data from of the user..
-exports.deleteUser = async (req, res)=>{
-    try{
-        const user = await User3.findByIdAndDelete(req.params.id)
-        if(!user){
-            return res.status(404).send()
-        }
-        res.send(user)
-    }
-    catch(err){
-        res.status(500).send()
-    }
-}
+    const newContact = new Contact({ 
+      name, 
+      email, 
+      message, 
+      date: submittedAt || new Date() // Fallback to current date
+    });
+    
+    await newContact.save();
+    res.status(201).json({ message: "Form submitted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Database saving failed" });
+  }
+};
 
-// Api for integrate backend server to razorpay server...
-exports.paymentIntegration = async (req, res)=>{
-    try{
-     const razpay = new RazorPay({
-    key_id : process.env.RAZORPAY_KEY_ID,
-    key_secret : process.env.RAZORPAY_SECRET
-})
 
-const option = req.body
-const order = await razpay.orders.create(option)
+// razorpay create oreder controller...
+exports.createOrder = async (req, res) => {
+  try {
+    const { amount, courseName } = req.body;
 
-if(!order){
-    return res.status(500).send("Error")
-}
-res.json(order)
+    const options = {
+      amount: amount * 100, // Razorpay expects amount in smallest currency unit (Paisa)
+      currency: "INR",
+      receipt: `receipt_${Date.now()}`,
+      notes: {
+        course_name: courseName,
+      }
+    };
+    const order = await RazorPay.orders.create(options);
+
+    if (!order) {
+      return res.status(500).send("Error creating order");
     }
-    catch(err){
-        console.log(err)
-        res.status(500).send("Error")
-    }
-}
+    
+    res.json(order);
+  } catch (error) {
+    console.error("Order Creation Error:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 
 // ye api order ko match krega or validate krega ki dono same hai ki nhi agr same nhi hoga to transaction failed ho jayega...
-exports.validateOrder =  async (req, res)=>{
-    const {razorpay_order_id , razorpay_payment_id, razorpay_signature} = req.body
+exports.validateOrder =  async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    const sha = crypto.createHmac("sha256", process.env.RAZORPAY_SECRET)   // createHmac(), ye crypto ka ek method jiske help se hm "cryptographic hash" create krte hai aur ye string, buffer,typedArray return krta hai...yha "sha256" pre-define hai..
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
 
-    sha.update(`${razorpay_order_id} | ${razorpay_payment_id}`) // 
-    const digest = sha.digest("hex")    // digest() me yha "hex" predefine hai...
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_SECRET)
+      .update(body.toString())
+      .digest('hex');
 
-    if(digest !== razorpay_signature){
-        return res.status(400).json({msg : "Transaction is not legit!"})
+    const isAuthentic = expectedSignature === razorpay_signature;
+
+    if (isAuthentic) {
+      
+      
+      res.json({
+        message: "Payment Verified Successfully",
+        paymentId: razorpay_payment_id
+      });
+    } else {
+      res.status(400).json({ message: "Invalid Signature. Transaction may be tampered." });
     }
-
-    res.json({
-        msg : "success",
-        orderId : razorpay_order_id,
-        paymentId : razorpay_payment_id
-    })
-}
+  } catch (error) {
+    console.error("Validation Error:", error);
+    res.status(500).json({ message: "Server Error during validation" });
+  }
+};
